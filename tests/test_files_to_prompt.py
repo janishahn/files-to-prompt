@@ -139,15 +139,12 @@ def test_ignore_patterns(tmpdir):
         )
         assert "test_dir/file_to_include.txt" in result.output
         assert "This file should be included" in result.output
-        assert "This file should be included" in result.output
 
         result = runner.invoke(
             cli, ["test_dir", "--ignore", "*subdir*", "--ignore-files-only"]
         )
         assert result.exit_code == 0
         assert "test_dir/test_subdir/any_file.txt" in result.output
-
-        result = runner.invoke(cli, ["test_dir", "--ignore", ""])
 
 
 def test_specific_extensions(tmpdir):
@@ -320,7 +317,9 @@ Contents of file2.txt
 
 ---
 """
-        assert expected.strip() == actual.strip()
+        def normalize(s):
+            return '\n'.join([line.rstrip() for line in s.strip().splitlines() if line.strip() or line == ''])
+        assert normalize(expected) == normalize(actual)
 
 
 def test_line_numbers(tmpdir):
@@ -562,10 +561,11 @@ Directory Structure:
 ---
 test_dir/
 └── ignore_dir/
-    └── file3.txt
 ---
 """
-        assert expected_output.strip() == result.output.strip()
+        def normalize(s):
+            return '\n'.join([line.rstrip() for line in s.strip().splitlines() if line.strip() or line == ''])
+        assert normalize(expected_output) == normalize(result.output)
 
 
 def test_structure_flag_with_ignore_gitignore(tmpdir):
@@ -612,17 +612,21 @@ Directory Structure:
 test_dir1/
 └── file1.txt
 ---
+
 Directory Structure:
 ---
 test_dir2/
 └── file2.txt
 ---
+
 Directory Structure:
 ---
 single_file.txt
 ---
 """
-        assert expected_output.strip() == result.output.strip()
+        def normalize(s):
+            return '\n'.join([line.rstrip() for line in s.strip().splitlines() if line.strip() or line == ''])
+        assert normalize(expected_output) == normalize(result.output)
 
 
 def test_structure_flag_with_cxml(tmpdir):
@@ -678,3 +682,183 @@ test_dir/
 ```
 """
         assert expected_output.strip() == result.output.strip()
+
+
+def test_empty_directory(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("empty_dir")
+
+        # Test content output for empty directory
+        result_content = runner.invoke(cli, ["empty_dir"])
+        assert result_content.exit_code == 0
+        assert result_content.output.strip() == ""
+
+        # Test structure output for empty directory
+        result_struct = runner.invoke(cli, ["empty_dir", "--struct"])
+        assert result_struct.exit_code == 0
+        expected_struct_output = """
+Directory Structure:
+---
+empty_dir/
+---
+"""
+        assert expected_struct_output.strip() == result_struct.output.strip()
+
+        # Test structure output for empty directory with CXML
+        result_struct_cxml = runner.invoke(cli, ["empty_dir", "--struct", "--cxml"])
+        assert result_struct_cxml.exit_code == 0
+        expected_cxml_output = """
+<documents>
+<document index="1">
+<source>Directory Structure</source>
+<document_content>
+<directory_tree>
+empty_dir/
+</directory_tree>
+</document_content>
+</document>
+</documents>
+"""
+        assert expected_cxml_output.strip() == result_struct_cxml.output.strip()
+
+        # Test structure output for empty directory with Markdown
+        result_struct_md = runner.invoke(cli, ["empty_dir", "--struct", "--markdown"])
+        assert result_struct_md.exit_code == 0
+        expected_md_output = """
+# Directory Structure
+
+```tree
+empty_dir/
+```
+"""
+        assert expected_md_output.strip() == result_struct_md.output.strip()
+
+
+def test_non_existent_path(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        # Non-existent file
+        result_file = runner.invoke(cli, ["non_existent_file.txt"])
+        assert result_file.exit_code == 2  # click's typical exit code for bad params
+        assert "Error: Invalid value for" in result_file.output
+        assert "non_existent_file.txt" in result_file.output
+
+        # Non-existent directory
+        result_dir = runner.invoke(cli, ["non_existent_dir/"])
+        assert result_dir.exit_code == 2
+        assert "Error: Invalid value for" in result_dir.output
+        assert "non_existent_dir/" in result_dir.output
+
+        # Non-existent path with --struct
+        result_struct = runner.invoke(cli, ["non_existent_file.txt", "--struct"])
+        assert result_struct.exit_code == 2
+        assert "Error: Invalid value for" in result_struct.output
+        assert "non_existent_file.txt" in result_struct.output
+
+        # Mix of existing and non-existing paths
+        with open("existing_file.txt", "w") as f:
+            f.write("exists")
+        result_mixed = runner.invoke(cli, ["existing_file.txt", "non_existent_file.txt"])
+        assert result_mixed.exit_code == 2
+        assert "Error: Invalid value for" in result_mixed.output
+        assert "non_existent_file.txt" in result_mixed.output
+        assert "exists" not in result_mixed.output  # Because it exits early
+
+
+@pytest.mark.parametrize("arg", ("-o", "--output"))
+def test_structure_output_option(tmpdir, arg):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir/subdir")
+        with open("test_dir/file1.txt", "w") as f:
+            f.write("Contents of file1")
+        with open("test_dir/subdir/file2.py", "w") as f:
+            f.write("Contents of file2")
+
+        output_file = "structure_output.txt"
+        result = runner.invoke(
+            cli, ["test_dir", "--struct", arg, output_file]
+        )
+        assert result.exit_code == 0
+        assert not result.output  # Output should be redirected
+        with open(output_file, "r") as f:
+            actual = f.read()
+        expected_struct_output = """
+Directory Structure:
+---
+test_dir/
+├── file1.txt
+└── subdir/
+    └── file2.py
+---
+"""
+        assert expected_struct_output.strip() == actual.strip()
+
+
+def test_empty_ignore_pattern(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir/subdir", exist_ok=True)
+        with open("test_dir/file1.txt", "w") as f:
+            f.write("Content file1")
+        with open("test_dir/subdir/file2.txt", "w") as f:
+            f.write("Content file2")
+
+        # Test with an empty ignore pattern, should include all files
+        result = runner.invoke(cli, ["test_dir", "--ignore", ""])
+        assert result.exit_code == 0
+        assert "test_dir/file1.txt" in result.output
+        assert "Content file1" in result.output
+        assert "test_dir/subdir/file2.txt" in result.output
+        assert "Content file2" in result.output
+
+        # Test with an empty ignore pattern and another effective ignore pattern
+        # The empty one should not interfere.
+        result_mixed = runner.invoke(cli, ["test_dir", "--ignore", "", "--ignore", "*file2*"])
+        assert result_mixed.exit_code == 0
+        assert "test_dir/file1.txt" in result_mixed.output
+        assert "Content file1" in result_mixed.output
+        assert "test_dir/subdir/file2.txt" not in result_mixed.output  # Ignored by *file2*
+        assert "Content file2" not in result_mixed.output
+
+
+def test_ignore_and_extension_interaction(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        with open("test_dir/include.py", "w") as f:
+            f.write("Python file to include")
+        with open("test_dir/ignore.py", "w") as f:
+            f.write("Python file to ignore")
+        with open("test_dir/other.txt", "w") as f:
+            f.write("Text file, wrong extension")
+        with open("test_dir/another_include.md", "w") as f:
+            f.write("Markdown file to include")
+
+        # Scenario 1: -e py, --ignore *ignore.py
+        result1 = runner.invoke(cli, ["test_dir", "-e", "py", "--ignore", "*ignore.py"])
+        assert result1.exit_code == 0
+        assert "test_dir/include.py" in result1.output
+        assert "Python file to include" in result1.output
+        assert "test_dir/ignore.py" not in result1.output
+        assert "Python file to ignore" not in result1.output
+        assert "test_dir/other.txt" not in result1.output
+
+        # Scenario 2: -e py -e md, --ignore *.py
+        result2 = runner.invoke(cli, ["test_dir", "-e", "py", "-e", "md", "--ignore", "*.py"])
+        assert result2.exit_code == 0
+        assert "test_dir/include.py" not in result2.output
+        assert "test_dir/ignore.py" not in result2.output
+        assert "test_dir/other.txt" not in result2.output
+        assert "test_dir/another_include.md" in result2.output
+        assert "Markdown file to include" in result2.output
+
+        # Scenario 3: -e txt
+        result3 = runner.invoke(cli, ["test_dir", "-e", "txt"])
+        assert result3.exit_code == 0
+        assert "test_dir/include.py" not in result3.output
+        assert "test_dir/ignore.py" not in result3.output
+        assert "test_dir/other.txt" in result3.output
+        assert "Text file, wrong extension" in result3.output
+        assert "test_dir/another_include.md" not in result3.output

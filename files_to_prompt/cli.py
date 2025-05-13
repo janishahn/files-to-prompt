@@ -52,16 +52,17 @@ def add_line_numbers(content):
     return "\n".join(numbered_lines)
 
 
-def print_path(writer, path, content, cxml, markdown, line_numbers):
+def print_path(writer, path, content, cxml, markdown, line_numbers, is_last_section=False):
+    rel_path = os.path.relpath(path)
     if cxml:
-        print_as_xml(writer, path, content, line_numbers)
+        print_as_xml(writer, rel_path, content, line_numbers)
     elif markdown:
-        print_as_markdown(writer, path, content, line_numbers)
+        print_as_markdown(writer, rel_path, content, line_numbers)
     else:
-        print_default(writer, path, content, line_numbers)
+        print_default(writer, rel_path, content, line_numbers, is_last_section=is_last_section)
 
 
-def print_default(writer, path, content, line_numbers):
+def print_default(writer, path, content, line_numbers, is_last_section=False):
     writer(path)
     writer("---")
     if line_numbers:
@@ -110,65 +111,84 @@ def process_path(
     claude_xml,
     markdown,
     line_numbers=False,
+    output_path=None,
+    is_last_section=False,
+    global_last_file=None,
 ):
+    """Process a file or directory path and output its contents.
+
+    Parameters
+    ----------
+    path : str
+        Path to process
+    extensions : tuple[str, ...]
+        File extensions to include
+    include_hidden : bool
+        Whether to include hidden files/directories
+    ignore_files_only : bool
+        Whether to only ignore files matching patterns
+    ignore_gitignore : bool
+        Whether to ignore .gitignore rules
+    gitignore_rules : list[str]
+        List of gitignore patterns
+    ignore_patterns : tuple[str, ...]
+        Patterns to ignore
+    writer : callable
+        Function to write output
+    claude_xml : bool
+        Whether to use XML format
+    markdown : bool
+        Whether to use Markdown format
+    line_numbers : bool, optional
+        Whether to add line numbers, by default False
+    output_path : str, optional
+        Path to output file, by default None
+    is_last_section : bool, optional
+        Whether this is the last section to be processed, by default False
+    """
     if os.path.isfile(path):
+        if path == output_path:
+            return
         try:
             with open(path, "r") as f:
-                print_path(writer, path, f.read(), claude_xml, markdown, line_numbers)
+                content = f.read()
+                print_path(writer, path, content, claude_xml, markdown, line_numbers, is_last_section=(path == global_last_file))
         except UnicodeDecodeError:
-            warning_message = f"Warning: Skipping file {path} due to UnicodeDecodeError"
+            rel_path = os.path.relpath(path)
+            warning_message = f"Warning: Skipping file {rel_path} due to UnicodeDecodeError"
             click.echo(click.style(warning_message, fg="red"), err=True)
     elif os.path.isdir(path):
         for root, dirs, files in os.walk(path):
+            if output_path and os.path.dirname(output_path) == root:
+                if os.path.basename(output_path) in files:
+                    files.remove(os.path.basename(output_path))
+
             if not include_hidden:
-                dirs[:] = [d for d in dirs if not d.startswith(".")]
-                files = [f for f in files if not f.startswith(".")]
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
+                files = [f for f in files if not f.startswith('.')]
 
             if not ignore_gitignore:
                 gitignore_rules.extend(read_gitignore(root))
-                dirs[:] = [
-                    d
-                    for d in dirs
-                    if not should_ignore(os.path.join(root, d), gitignore_rules)
-                ]
-                files = [
-                    f
-                    for f in files
-                    if not should_ignore(os.path.join(root, f), gitignore_rules)
-                ]
+                dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), gitignore_rules)]
+                files = [f for f in files if not should_ignore(os.path.join(root, f), gitignore_rules)]
 
             if ignore_patterns:
                 if not ignore_files_only:
-                    dirs[:] = [
-                        d
-                        for d in dirs
-                        if not any(fnmatch(d, pattern) for pattern in ignore_patterns)
-                    ]
-                files = [
-                    f
-                    for f in files
-                    if not any(fnmatch(f, pattern) for pattern in ignore_patterns)
-                ]
+                    dirs[:] = [d for d in dirs if not any(fnmatch(d, pattern) for pattern in ignore_patterns)]
+                files = [f for f in files if not any(fnmatch(f, pattern) for pattern in ignore_patterns)]
 
             if extensions:
-                files = [f for f in files if f.endswith(extensions)]
+                files = [f for f in files if any(f.endswith(ext) for ext in extensions)]
 
-            for file in sorted(files):
+            for idx, file in enumerate(sorted(files)):
                 file_path = os.path.join(root, file)
                 try:
                     with open(file_path, "r") as f:
-                        print_path(
-                            writer,
-                            file_path,
-                            f.read(),
-                            claude_xml,
-                            markdown,
-                            line_numbers,
-                        )
+                        content = f.read()
+                        print_path(writer, file_path, content, claude_xml, markdown, line_numbers, is_last_section=(file_path == global_last_file))
                 except UnicodeDecodeError:
-                    warning_message = (
-                        f"Warning: Skipping file {file_path} due to UnicodeDecodeError"
-                    )
+                    rel_path = os.path.relpath(file_path)
+                    warning_message = f"Warning: Skipping file {rel_path} due to UnicodeDecodeError"
                     click.echo(click.style(warning_message, fg="red"), err=True)
 
 
@@ -216,6 +236,7 @@ def generate_directory_structure(
     gitignore_rules: list[str],
     ignore_patterns: tuple[str, ...],
     levels: list[bool] = None,
+    parent_ignored: bool = False,
 ) -> str:
     """Generate a tree-like structure representation of directories and files.
 
@@ -248,11 +269,12 @@ def generate_directory_structure(
 
     result = []
     
+    name = os.path.basename(path)
     if os.path.isfile(path):
-        result.append(f"{format_tree_prefix(levels)}{os.path.basename(path)}")
+        result.append(f"{format_tree_prefix(levels)}{name}")
         return "\n".join(result)
 
-    result.append(f"{format_tree_prefix(levels)}{os.path.basename(path)}/")
+    result.append(f"{format_tree_prefix(levels)}{name}/")
     
     if not os.path.isdir(path):
         return "\n".join(result)
@@ -271,19 +293,30 @@ def generate_directory_structure(
             continue
 
         if os.path.isdir(item_path):
-            # Apply ignore_patterns to directories only if ignore_files_only is False
+            # Only apply ignore_patterns to directories if ignore_files_only is False
+            should_ignore_dir = False
             if ignore_patterns and not ignore_files_only:
                 if any(fnmatch(item, pattern) for pattern in ignore_patterns):
-                    continue
-            filtered_items.append(item)
+                    should_ignore_dir = True
+            
+            # If ignore_files_only is True, we always include the directory
+            # Otherwise, check if it should be ignored
+            if ignore_files_only or not should_ignore_dir:
+                # Mark this directory as ignored for its children if it matches ignore patterns
+                is_ignored = ignore_patterns and any(fnmatch(item, pattern) for pattern in ignore_patterns)
+                filtered_items.append((item, is_ignored))
         elif os.path.isfile(item_path):
-            # Always apply ignore_patterns to files, even in subdirectories
+            # Apply ignore_patterns to files based on the flags
             if ignore_patterns:
-                if any(fnmatch(item, pattern) for pattern in ignore_patterns):
-                    continue
+                # When ignore_files_only is True and we're in an ignored directory,
+                # we should still include the file
+                if not (ignore_files_only and parent_ignored):
+                    # Otherwise, check if the file matches any ignore pattern
+                    if any(fnmatch(item, pattern) for pattern in ignore_patterns):
+                        continue
             if extensions and not any(item.endswith(ext) for ext in extensions):
                 continue
-            filtered_items.append(item)
+            filtered_items.append((item, False))
         else:
             # Handle other file types if necessary, or skip
             pass
@@ -292,7 +325,7 @@ def generate_directory_structure(
     filtered_items.sort()
     
     # Process items
-    for i, item in enumerate(filtered_items):
+    for i, (item, is_ignored) in enumerate(filtered_items):
         item_path = os.path.join(path, item)
         is_last = i == len(filtered_items) - 1
         if os.path.isdir(item_path):
@@ -305,7 +338,8 @@ def generate_directory_structure(
                     ignore_gitignore,
                     gitignore_rules,
                     ignore_patterns,
-                    levels + [is_last]
+                    levels + [is_last],
+                    is_ignored  # Pass whether this directory was marked as ignored
                 )
             )
         elif os.path.isfile(item_path):
@@ -314,7 +348,7 @@ def generate_directory_structure(
     return "\n".join(result)
 
 
-def print_structure(writer, structure_str: str, cxml: bool, markdown: bool) -> None:
+def print_structure(writer, structure_str: str, cxml: bool, markdown: bool, is_last_block=False) -> None:
     """Print the directory structure in the specified format.
 
     Parameters
@@ -327,16 +361,18 @@ def print_structure(writer, structure_str: str, cxml: bool, markdown: bool) -> N
         Whether to use XML format
     markdown : bool
         Whether to use Markdown format
+    is_last_block : bool
+        Whether this is the last structure block
     """
     if cxml:
         print_structure_as_xml(writer, structure_str)
     elif markdown:
         print_structure_as_markdown(writer, structure_str)
     else:
-        print_structure_default(writer, structure_str)
+        print_structure_default(writer, structure_str, is_last_block=is_last_block)
 
 
-def print_structure_default(writer, structure_str: str) -> None:
+def print_structure_default(writer, structure_str: str, is_last_block=False) -> None:
     """Print directory structure in default format.
 
     Parameters
@@ -345,11 +381,15 @@ def print_structure_default(writer, structure_str: str) -> None:
         Function to write output
     structure_str : str
         Generated directory structure string
+    is_last_block : bool
+        Whether this is the last structure block
     """
     writer("Directory Structure:")
     writer("---")
     writer(structure_str)
     writer("---")
+    # Always add a blank line after each structure block for consistent formatting
+    writer("")
 
 
 def print_structure_as_xml(writer, structure_str: str) -> None:
@@ -410,13 +450,6 @@ def print_structure_as_markdown(writer, structure_str: str) -> None:
     help="Ignore .gitignore files and include all files",
 )
 @click.option(
-    "ignore_patterns",
-    "--ignore",
-    multiple=True,
-    default=[],
-    help="List of patterns to ignore",
-)
-@click.option(
     "output_file",
     "-o",
     "--output",
@@ -457,6 +490,12 @@ def print_structure_as_markdown(writer, structure_str: str) -> None:
     is_flag=True,
     help="Generate a directory structure overview instead of file contents",
 )
+@click.option(
+    "ignore_patterns",
+    "--ignore",
+    multiple=True,
+    help="Patterns to ignore files and directories. Can be used multiple times.",
+)
 @click.version_option()
 def cli(
     paths,
@@ -464,13 +503,13 @@ def cli(
     include_hidden,
     ignore_files_only,
     ignore_gitignore,
-    ignore_patterns,
     output_file,
     claude_xml,
     markdown,
     line_numbers,
     null,
     structure,
+    ignore_patterns,
 ):
     """
     Takes one or more paths to files or directories and outputs every file,
@@ -515,6 +554,9 @@ def cli(
         │   └── file2.py
         └── dir2/
             └── file3.py
+
+    Use the --ignore option multiple times to specify patterns to ignore.
+    For example: --ignore "*.pyc" --ignore "build/" --ignore "dist/" --ignore "temp/"
     """
     # Reset global_index for pytest
     global global_index
@@ -526,48 +568,88 @@ def cli(
     gitignore_rules = []
     writer = click.echo
     fp = None
-    
+
     if output_file:
         fp = open(output_file, "w", encoding="utf-8")
-        writer = lambda s: print(s, file=fp)
-    
+        def file_writer(line):
+            fp.write(line)
+            fp.write("\n")
+        writer = file_writer
+
     try:
         if claude_xml:
             writer("<documents>")
-        
-        for path in paths:
-            if not os.path.exists(path):
-                raise click.BadArgumentUsage(f"Path does not exist: {path}")
+        if structure:
+            num_paths = len(paths)
+            for i, path in enumerate(paths):
+                abs_path = os.path.abspath(path)
+                if os.path.exists(path):
+                    structure_str = generate_directory_structure(
+                        abs_path,
+                        extensions,
+                        include_hidden,
+                        ignore_files_only,
+                        ignore_gitignore,
+                        gitignore_rules,
+                        ignore_patterns,
+                    )
+                    is_last_block = (i == num_paths - 1)
+                    print_structure(
+                        writer,
+                        structure_str,
+                        claude_xml,
+                        markdown,
+                        is_last_block=is_last_block
+                    )
+        else:
+            # Determine all files to process for correct blank line logic
+            all_files = []
+            for path in paths:
+                abs_path = os.path.abspath(path)
+                if os.path.isfile(abs_path):
+                    all_files.append(abs_path)
+                elif os.path.isdir(abs_path):
+                    for root, dirs, files in os.walk(abs_path):
+                        if output_file and os.path.dirname(output_file) == root:
+                            if os.path.basename(output_file) in files:
+                                files.remove(os.path.basename(output_file))
+                        if not include_hidden:
+                            dirs[:] = [d for d in dirs if not d.startswith('.')]
+                            files = [f for f in files if not f.startswith('.')]
+                        if not ignore_gitignore:
+                            gitignore_rules.extend(read_gitignore(root))
+                            dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), gitignore_rules)]
+                            files = [f for f in files if not should_ignore(os.path.join(root, f), gitignore_rules)]
+                        if ignore_patterns:
+                            if not ignore_files_only:
+                                dirs[:] = [d for d in dirs if not any(fnmatch(d, pattern) for pattern in ignore_patterns)]
+                            files = [f for f in files if not any(fnmatch(f, pattern) for pattern in ignore_patterns)]
+                        if extensions:
+                            files = [f for f in files if f.endswith(extensions)]
+                        for file in sorted(files):
+                            file_path = os.path.join(root, file)
+                            all_files.append(file_path)
             
-            if not ignore_gitignore:
-                gitignore_rules.extend(read_gitignore(os.path.dirname(path)))
-            
-            if structure:
-                structure_str = generate_directory_structure(
-                    path,
-                    extensions,
-                    include_hidden,
-                    ignore_files_only,
-                    ignore_gitignore,
-                    gitignore_rules,
-                    ignore_patterns,
-                )
-                print_structure(writer, structure_str, claude_xml, markdown)
-            else:
-                process_path(
-                    path,
-                    extensions,
-                    include_hidden,
-                    ignore_files_only,
-                    ignore_gitignore,
-                    gitignore_rules,
-                    ignore_patterns,
-                    writer,
-                    claude_xml,
-                    markdown,
-                    line_numbers,
-                )
-        
+            last_file = all_files[-1] if all_files else None
+            for path in paths:
+                abs_path = os.path.abspath(path)
+                if os.path.exists(abs_path):
+                    process_path(
+                        abs_path,
+                        extensions,
+                        include_hidden,
+                        ignore_files_only,
+                        ignore_gitignore,
+                        gitignore_rules,
+                        ignore_patterns,
+                        writer,
+                        claude_xml,
+                        markdown,
+                        line_numbers,
+                        output_file,  # Pass the output file path
+                        is_last_section=(abs_path == last_file),
+                        global_last_file=last_file
+                    )
         if claude_xml:
             writer("</documents>")
     finally:

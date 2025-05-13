@@ -1,20 +1,18 @@
 # files-to-prompt
 
-[![PyPI](https://img.shields.io/pypi/v/files-to-prompt.svg)](https://pypi.org/project/files-to-prompt/)
-[![Changelog](https://img.shields.io/github/v/release/simonw/files-to-prompt?include_prereleases&label=changelog)](https://github.com/simonw/files-to-prompt/releases)
-[![Tests](https://github.com/simonw/files-to-prompt/actions/workflows/test.yml/badge.svg)](https://github.com/simonw/files-to-prompt/actions/workflows/test.yml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/simonw/files-to-prompt/blob/master/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/files-to-prompt-ext.svg)](https://pypi.org/project/files-to-prompt-ext/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/janishahn/files-to-prompt/blob/main/LICENSE)
 
-Concatenate a directory full of files into a single prompt for use with LLMs
+Build project file/directory context prompts for use with LLMs. This CLI tool helps you concatenate files and directory structures into a single, well-formatted prompt that can be used with large language models like GPT-4 or Claude.
 
-For background on this project see [Building files-to-prompt entirely using Claude 3 Opus](https://simonwillison.net/2024/Apr/8/files-to-prompt/).
+This is an extended fork of [simonw/files-to-prompt](https://github.com/simonw/files-to-prompt) that adds directory structure visualization and other enhancements.
 
 ## Installation
 
 Install this tool using `pip`:
 
 ```bash
-pip install files-to-prompt
+pip install files-to-prompt-ext
 ```
 
 ## Usage
@@ -41,9 +39,9 @@ This will output the contents of every file, with each file preceded by its rela
   files-to-prompt path/to/directory --include-hidden
   ```
 
-- `--ignore <pattern>`: Specify one or more patterns to ignore. Can be used multiple times. Patterns may match file names and directory names, unless you also specify `--ignore-files-only`. Pattern syntax uses [fnmatch](https://docs.python.org/3/library/fnmatch.html), which supports `*`, `?`, `[anychar]`, `[!notchars]` and `[?]` for special character literals.
+- `--ignore <pattern1> <pattern2> ...`: After the `--ignore` flag, specify one or more patterns to ignore. Patterns match both file and directory names unless `--ignore-files-only` is specified. Pattern syntax uses [fnmatch](https://docs.python.org/3/library/fnmatch.html), which supports `*`, `?`, `[anychar]`, `[!notchars]` and `[?]` for special character literals.
   ```bash
-  files-to-prompt path/to/directory --ignore "*.log" --ignore "temp*"
+  files-to-prompt src/ --ignore *.pyc build/ dist/ temp/
   ```
 
 - `--ignore-files-only`: Include directory paths which would otherwise be ignored by an `--ignore` pattern.
@@ -70,7 +68,7 @@ This will output the contents of every file, with each file preceded by its rela
   files-to-prompt path/to/directory --markdown
   ```
 
-- `-o/--output <file>`: Write the output to a file instead of printing it to the console.
+- `-o/--output <file>`: Write the output to a file instead of printing it to the console. The output file itself will be excluded from the results.
 
   ```bash
   files-to-prompt path/to/directory -o output.txt
@@ -98,12 +96,35 @@ This will output the contents of every file, with each file preceded by its rela
   find . -name "*.py" -print0 | files-to-prompt --null
   ```
 
-- `-s/--struct`: Generate a directory structure overview instead of file contents.
+- `-s/--struct`: Generate a directory structure overview instead of file contents. This will show a tree-like representation of directories and files.
 
   ```bash
   files-to-prompt path/to/directory --struct
   ```
+  Example output:
+  ```
+  Directory Structure:
+  ---
+  my_directory/
+  ├── file1.txt
+  ├── file2.txt
+  ├── .hidden_file.txt
+  ├── temp.log
+  └── subdirectory/
+      └── file3.txt
+  ---
+  ```
 
+  The directory structure view also respects all other flags:
+  - Use with `--include-hidden` to show hidden files and directories
+  - Use with `--ignore` to exclude certain patterns
+  - Use with `--ignore-files-only` to only ignore files but show directories
+  - Use with `--ignore-gitignore` to ignore .gitignore rules
+  - Use with `-e/--extension` to only show files with specific extensions
+  - Use with `-o/--output` to save to a file
+  - Use with `--cxml` to output in Claude XML format
+  - Use with `--markdown` to output as a Markdown code block
+  
 ### Example
 
 Suppose you have a directory structure like this:
@@ -288,9 +309,11 @@ fenced code blocks
 Inside it.
 ````
 If you use `--markdown` with `--struct`:
-````markdown
-Directory Structure:
-```
+
+```markdown
+# Directory Structure
+
+```tree
 my_directory/
 ├── file1.txt
 ├── file2.txt
@@ -299,7 +322,7 @@ my_directory/
 └── subdirectory/
     └── file3.txt
 ```
-`````
+```
 
 ## Development
 
