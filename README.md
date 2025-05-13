@@ -1,9 +1,9 @@
-# files-to-prompt
+# files-to-prompt-ext
 
 [![PyPI](https://img.shields.io/pypi/v/files-to-prompt-ext.svg)](https://pypi.org/project/files-to-prompt-ext/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/janishahn/files-to-prompt/blob/main/LICENSE)
 
-Build project file/directory context prompts for use with LLMs. This CLI tool helps you concatenate files and directory structures into a single, well-formatted prompt that can be used with large language models like GPT-4 or Claude.
+Build project file/directory context prompts for use with LLMs. This CLI tool helps you concatenate files and directory structures into a single prompt.
 
 This is an extended fork of [simonw/files-to-prompt](https://github.com/simonw/files-to-prompt) that adds directory structure visualization and other enhancements.
 
