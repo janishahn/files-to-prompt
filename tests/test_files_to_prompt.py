@@ -243,15 +243,14 @@ def test_binary_file_warning(tmpdir):
         result = runner.invoke(cli, ["test_dir"])
         assert result.exit_code == 0
 
-        stdout = result.stdout
-        stderr = result.stderr
+        output = result.output
 
-        assert "test_dir/text_file.txt" in stdout
-        assert "This is a text file" in stdout
-        assert "\ntest_dir/binary_file.bin" not in stdout
+        assert "test_dir/text_file.txt" in output
+        assert "This is a text file" in output
+        assert "\ntest_dir/binary_file.bin" not in output
         assert (
             "Warning: Skipping file test_dir/binary_file.bin due to UnicodeDecodeError"
-            in stderr
+            in output
         )
 
 
