@@ -1,9 +1,9 @@
 [project]
-name = "files-to-prompt"
-version = "0.6"
-description = "Concatenate a directory full of files into a single prompt for use with LLMs"
+name = "files-to-prompt-ext"
+version = "0.6.1"
+description = "Build project file/directory context prompts for use with LLMs"
 readme = "README.md"
-authors = [{name = "Simon Willison"}]
+authors = [{name = "Janis Hahn"}]
 license = {text = "Apache-2.0"}
 requires-python = ">=3.8"
 classifiers = [
@@ -14,10 +14,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/simonw/files-to-prompt"
-Changelog = "https://github.com/simonw/files-to-prompt/releases"
-Issues = "https://github.com/simonw/files-to-prompt/issues"
-CI = "https://github.com/simonw/files-to-prompt/actions"
+Homepage = "https://github.com/janishahn/files-to-prompt"
 
 [project.entry-points.console_scripts]
 files-to-prompt = "files_to_prompt.cli:cli"

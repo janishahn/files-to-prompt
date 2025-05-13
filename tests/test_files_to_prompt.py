@@ -235,7 +235,7 @@ def test_mixed_paths_with_options(tmpdir):
 
 
 def test_binary_file_warning(tmpdir):
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with tmpdir.as_cwd():
         os.makedirs("test_dir")
         with open("test_dir/binary_file.bin", "wb") as f:
@@ -439,3 +439,242 @@ def test_markdown(tmpdir, option):
             "`````\n"
         )
         assert expected.strip() == actual.strip()
+
+
+def test_structure_flag_basic(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        with open("test_dir/file1.txt", "w") as f:
+            f.write("Contents of file1")
+        os.makedirs("test_dir/subdir")
+        with open("test_dir/subdir/file2.py", "w") as f:
+            f.write("Contents of file2")
+
+        result = runner.invoke(cli, ["test_dir", "--struct"])
+        assert result.exit_code == 0
+        expected_output = """
+Directory Structure:
+---
+test_dir/
+├── file1.txt
+└── subdir/
+    └── file2.py
+---
+"""
+        assert expected_output.strip() == result.output.strip()
+
+
+def test_structure_flag_with_extensions(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        with open("test_dir/file1.txt", "w") as f:
+            f.write("Contents of file1")
+        with open("test_dir/file2.py", "w") as f:
+            f.write("Contents of file2")
+        os.makedirs("test_dir/subdir")
+        with open("test_dir/subdir/file3.txt", "w") as f:
+            f.write("Contents of file3")
+        with open("test_dir/subdir/file4.md", "w") as f:
+            f.write("Contents of file4")
+
+        result = runner.invoke(cli, ["test_dir", "--struct", "-e", "txt"])
+        assert result.exit_code == 0
+        expected_output = """
+Directory Structure:
+---
+test_dir/
+├── file1.txt
+└── subdir/
+    └── file3.txt
+---
+"""
+        assert expected_output.strip() == result.output.strip()
+
+
+def test_structure_flag_with_include_hidden(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        with open("test_dir/file1.txt", "w") as f:
+            f.write("Contents of file1")
+        with open("test_dir/.hidden_file.txt", "w") as f:
+            f.write("Contents of hidden file")
+        os.makedirs("test_dir/.hidden_dir")
+        with open("test_dir/.hidden_dir/file2.txt", "w") as f:
+            f.write("Contents of file2")
+
+        result = runner.invoke(cli, ["test_dir", "--struct", "--include-hidden"])
+        assert result.exit_code == 0
+        expected_output = """
+Directory Structure:
+---
+test_dir/
+├── .hidden_dir/
+│   └── file2.txt
+├── .hidden_file.txt
+└── file1.txt
+---
+"""
+        assert expected_output.strip() == result.output.strip()
+
+
+def test_structure_flag_with_ignore_patterns(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        with open("test_dir/file_to_ignore.txt", "w") as f:
+            f.write("This file should be ignored")
+        with open("test_dir/file_to_include.txt", "w") as f:
+            f.write("This file should be included")
+        os.makedirs("test_dir/ignore_dir")
+        with open("test_dir/ignore_dir/file3.txt", "w") as f:
+            f.write("Contents of file3")
+
+        result = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "*.txt", "--ignore", "ignore_dir"])
+        assert result.exit_code == 0
+        expected_output = """
+Directory Structure:
+---
+test_dir/
+---
+"""
+        assert expected_output.strip() == result.output.strip()
+
+
+def test_structure_flag_with_ignore_files_only(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        with open("test_dir/file_to_ignore.txt", "w") as f:
+            f.write("This file should be ignored")
+        with open("test_dir/file_to_include.txt", "w") as f:
+            f.write("This file should be included")
+        os.makedirs("test_dir/ignore_dir")
+        with open("test_dir/ignore_dir/file3.txt", "w") as f:
+            f.write("Contents of file3")
+
+        result = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "*.txt", "--ignore-files-only"])
+        assert result.exit_code == 0
+        expected_output = """
+Directory Structure:
+---
+test_dir/
+└── ignore_dir/
+    └── file3.txt
+---
+"""
+        assert expected_output.strip() == result.output.strip()
+
+
+def test_structure_flag_with_ignore_gitignore(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        with open("test_dir/.gitignore", "w") as f:
+            f.write("ignored.txt")
+        with open("test_dir/ignored.txt", "w") as f:
+            f.write("This file should be ignored")
+        with open("test_dir/included.txt", "w") as f:
+            f.write("This file should be included")
+
+        result = runner.invoke(cli, ["test_dir", "--struct", "--ignore-gitignore"])
+        assert result.exit_code == 0
+        expected_output = """
+Directory Structure:
+---
+test_dir/
+├── ignored.txt
+└── included.txt
+---
+"""
+        assert expected_output.strip() == result.output.strip()
+
+
+def test_structure_flag_with_multiple_paths(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir1")
+        with open("test_dir1/file1.txt", "w") as f:
+            f.write("Contents of file1")
+        os.makedirs("test_dir2")
+        with open("test_dir2/file2.txt", "w") as f:
+            f.write("Contents of file2")
+        with open("single_file.txt", "w") as f:
+            f.write("Contents of single file")
+
+        result = runner.invoke(cli, ["test_dir1", "test_dir2", "single_file.txt", "--struct"])
+        assert result.exit_code == 0
+        expected_output = """
+Directory Structure:
+---
+test_dir1/
+└── file1.txt
+---
+Directory Structure:
+---
+test_dir2/
+└── file2.txt
+---
+Directory Structure:
+---
+single_file.txt
+---
+"""
+        assert expected_output.strip() == result.output.strip()
+
+
+def test_structure_flag_with_cxml(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        with open("test_dir/file1.txt", "w") as f:
+            f.write("Contents of file1")
+        os.makedirs("test_dir/subdir")
+        with open("test_dir/subdir/file2.py", "w") as f:
+            f.write("Contents of file2")
+
+        result = runner.invoke(cli, ["test_dir", "--struct", "--cxml"])
+        assert result.exit_code == 0
+        expected_output = """
+<documents>
+<document index="1">
+<source>Directory Structure</source>
+<document_content>
+<directory_tree>
+test_dir/
+├── file1.txt
+└── subdir/
+    └── file2.py
+</directory_tree>
+</document_content>
+</document>
+</documents>
+"""
+        assert expected_output.strip() == result.output.strip()
+
+
+def test_structure_flag_with_markdown(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        with open("test_dir/file1.txt", "w") as f:
+            f.write("Contents of file1")
+        os.makedirs("test_dir/subdir")
+        with open("test_dir/subdir/file2.py", "w") as f:
+            f.write("Contents of file2")
+
+        result = runner.invoke(cli, ["test_dir", "--struct", "--markdown"])
+        assert result.exit_code == 0
+        expected_output = """
+# Directory Structure
+
+```tree
+test_dir/
+├── file1.txt
+└── subdir/
+    └── file2.py
+```
+"""
+        assert expected_output.strip() == result.output.strip()

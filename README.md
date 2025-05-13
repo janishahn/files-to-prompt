@@ -98,6 +98,12 @@ This will output the contents of every file, with each file preceded by its rela
   find . -name "*.py" -print0 | files-to-prompt --null
   ```
 
+- `-s/--struct`: Generate a directory structure overview instead of file contents.
+
+  ```bash
+  files-to-prompt path/to/directory --struct
+  ```
+
 ### Example
 
 Suppose you have a directory structure like this:
@@ -129,43 +135,57 @@ Contents of file3.txt
 ---
 ```
 
-If you run `files-to-prompt my_directory --include-hidden`, the output will also include `.hidden_file.txt`:
+If you run `files-to-prompt my_directory --struct`, the output will be:
 
 ```
-my_directory/.hidden_file.txt
+Directory Structure:
 ---
-Contents of .hidden_file.txt
----
-...
-```
-
-If you run `files-to-prompt my_directory --ignore "*.log"`, the output will exclude `temp.log`:
-
-```
-my_directory/file1.txt
----
-Contents of file1.txt
----
-my_directory/file2.txt
----
-Contents of file2.txt
----
-my_directory/subdirectory/file3.txt
----
-Contents of file3.txt
+my_directory/
+├── file1.txt
+├── file2.txt
+├── .hidden_file.txt
+├── temp.log
+└── subdirectory/
+    └── file3.txt
 ---
 ```
 
-If you run `files-to-prompt my_directory --ignore "sub*"`, the output will exclude all files in `subdirectory/` (unless you also specify `--ignore-files-only`):
+If you run `files-to-prompt my_directory --struct --include-hidden`, the output will also include `.hidden_file.txt`:
 
 ```
-my_directory/file1.txt
+Directory Structure:
 ---
-Contents of file1.txt
+my_directory/
+├── file1.txt
+├── file2.txt
+├── .hidden_file.txt
+├── temp.log
+└── subdirectory/
+    └── file3.txt
 ---
-my_directory/file2.txt
+```
+
+If you run `files-to-prompt my_directory --struct --ignore "*.log"`, the output will exclude `temp.log`:
+
+```
+Directory Structure:
 ---
-Contents of file2.txt
+my_directory/
+├── file1.txt
+├── file2.txt
+└── subdirectory/
+    └── file3.txt
+---
+```
+
+If you run `files-to-prompt my_directory --struct --ignore "sub*"`, the output will exclude the `subdirectory/`:
+
+```
+Directory Structure:
+---
+my_directory/
+├── file1.txt
+└── file2.txt
 ---
 ```
 
@@ -214,6 +234,27 @@ Contents of file2.txt
 </documents>
 ```
 
+If you use `--cxml` with `--struct`:
+
+```xml
+<documents>
+<document index="1">
+<source>Directory Structure</source>
+<document_content>
+<directory_tree>
+my_directory/
+├── file1.txt
+├── file2.txt
+├── .hidden_file.txt
+├── temp.log
+└── subdirectory/
+    └── file3.txt
+</directory_tree>
+</document_content>
+</document>
+</documents>
+```
+
 ## --markdown fenced code block output
 
 The `--markdown` option will output the files as fenced code blocks, which can be useful for pasting into Markdown documents.
@@ -246,6 +287,18 @@ fenced code blocks
 ```
 Inside it.
 ````
+If you use `--markdown` with `--struct`:
+````markdown
+Directory Structure:
+```
+my_directory/
+├── file1.txt
+├── file2.txt
+├── .hidden_file.txt
+├── temp.log
+└── subdirectory/
+    └── file3.txt
+```
 `````
 
 ## Development
