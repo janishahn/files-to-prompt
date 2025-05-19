@@ -1000,3 +1000,97 @@ def test_struct_ignore_pattern_vs_should_ignore(tmpdir):
             
             # The negation ensures they match: either both present or both absent
             assert not (pattern_in_struct ^ files_in_content)
+
+
+def test_ignore_flag_with_gitignore(tmpdir):
+    """Test interaction between --ignore flag and .gitignore patterns."""
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        # Create directory structure
+        os.makedirs("test_dir")
+        
+        # Create .gitignore file that ignores *.log and data/ directory
+        with open("test_dir/.gitignore", "w") as f:
+            f.write("*.log\ndata/\n")
+        
+        # Create files to test gitignore patterns
+        with open("test_dir/app.py", "w") as f:
+            f.write("# Python code")
+        with open("test_dir/app.log", "w") as f:
+            f.write("Log file ignored by gitignore")
+        os.makedirs("test_dir/data")
+        with open("test_dir/data/data.csv", "w") as f:
+            f.write("data,value\n1,2")
+        
+        # Create another file that will be ignored by --ignore flag
+        with open("test_dir/config.ini", "w") as f:
+            f.write("[config]\nvalue=1")
+        
+        # Test 1: Default behavior - gitignore files are not included
+        result1 = runner.invoke(cli, ["test_dir"])
+        assert result1.exit_code == 0
+        assert "test_dir/app.py" in result1.output
+        assert "test_dir/app.log" not in result1.output  # Ignored by gitignore
+        assert "test_dir/data/data.csv" not in result1.output  # Ignored by gitignore
+        assert "test_dir/config.ini" in result1.output
+        
+        # Test 2: With --ignore flag - both gitignore and --ignore patterns are applied
+        result2 = runner.invoke(cli, ["test_dir", "--ignore", "*.ini"])
+        assert result2.exit_code == 0
+        assert "test_dir/app.py" in result2.output
+        assert "test_dir/app.log" not in result2.output  # Ignored by gitignore
+        assert "test_dir/data/data.csv" not in result2.output  # Ignored by gitignore
+        assert "test_dir/config.ini" not in result2.output  # Ignored by --ignore
+        
+        # Test 3: With --ignore-gitignore - gitignore is disabled but --ignore still works
+        result3 = runner.invoke(cli, ["test_dir", "--ignore", "*.ini", "--ignore-gitignore"])
+        assert result3.exit_code == 0
+        assert "test_dir/app.py" in result3.output
+        assert "test_dir/app.log" in result3.output  # No longer ignored
+        assert "test_dir/data/data.csv" in result3.output  # No longer ignored
+        assert "test_dir/config.ini" not in result3.output  # Still ignored by --ignore
+
+
+def test_structure_flag_with_gitignore_and_ignore(tmpdir):
+    """Test interaction between --struct flag, .gitignore patterns, and --ignore flag."""
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        # Create directory structure
+        os.makedirs("test_dir/src")
+        os.makedirs("test_dir/build")
+        os.makedirs("test_dir/docs")
+        
+        # Create .gitignore file that ignores build/ directory
+        with open("test_dir/.gitignore", "w") as f:
+            f.write("build/\n")
+        
+        # Create files in each directory
+        with open("test_dir/src/main.py", "w") as f:
+            f.write("# Main code")
+        with open("test_dir/build/output.bin", "w") as f:
+            f.write("Binary output")
+        with open("test_dir/docs/readme.md", "w") as f:
+            f.write("# Documentation")
+        with open("test_dir/docs/api.md", "w") as f:
+            f.write("# API Reference")
+        
+        # Test 1: Default structure behavior - gitignore patterns are respected
+        result1 = runner.invoke(cli, ["test_dir", "--struct"])
+        assert result1.exit_code == 0
+        assert "src/" in result1.output
+        assert "docs/" in result1.output
+        assert "build/" not in result1.output  # Ignored by gitignore
+        
+        # Test 2: Structure with --ignore flag - both gitignore and --ignore patterns applied
+        result2 = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "docs/"])
+        assert result2.exit_code == 0
+        assert "src/" in result2.output
+        assert "docs/" not in result2.output  # Ignored by --ignore
+        assert "build/" not in result2.output  # Ignored by gitignore
+        
+        # Test 3: Structure with --ignore-gitignore - gitignore disabled but --ignore still works
+        result3 = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "docs/", "--ignore-gitignore"])
+        assert result3.exit_code == 0
+        assert "src/" in result3.output
+        assert "docs/" not in result3.output  # Ignored by --ignore
+        assert "build/" in result3.output  # No longer ignored by gitignore

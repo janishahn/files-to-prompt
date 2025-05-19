@@ -181,7 +181,6 @@ def process_path(
             if ignore_patterns:
                 if not ignore_files_only:
                     dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), list(ignore_patterns))]
-                # Always apply ignore patterns to files
                 files = [f for f in files if not should_ignore(os.path.join(root, f), list(ignore_patterns))]
 
             if extensions:
@@ -265,6 +264,13 @@ def generate_directory_structure(
     if not os.path.isdir(path):
         return "\n".join(result)
 
+    # Read gitignore rules from this directory
+    if not ignore_gitignore:
+        local_gitignore_rules = read_gitignore(path)
+        all_gitignore_rules = gitignore_rules + local_gitignore_rules
+    else:
+        all_gitignore_rules = []
+
     items = os.listdir(path)
     filtered_items = []
     
@@ -276,7 +282,7 @@ def generate_directory_structure(
             continue
 
         # Check gitignore rules
-        if not ignore_gitignore and should_ignore(item_path, gitignore_rules):
+        if not ignore_gitignore and should_ignore(item_path, all_gitignore_rules):
             continue
 
         # Handle directories
@@ -320,7 +326,7 @@ def generate_directory_structure(
                     include_hidden,
                     ignore_files_only,
                     ignore_gitignore,
-                    gitignore_rules,
+                    all_gitignore_rules,
                     ignore_patterns,
                     levels + [is_last],
                     parent_ignored or is_dir_ignored or is_item_ignored
@@ -606,8 +612,9 @@ def cli(
                             files = [f for f in files if not should_ignore(os.path.join(root, f), gitignore_rules)]
                         if ignore_patterns:
                             if not ignore_files_only:
-                                dirs[:] = [d for d in dirs if not any(fnmatch(d, pattern) for pattern in ignore_patterns)]
-                            files = [f for f in files if not any(fnmatch(f, pattern) for pattern in ignore_patterns)]
+                                dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), list(ignore_patterns))]
+                            files = [f for f in files if not should_ignore(os.path.join(root, f), list(ignore_patterns))]
+
                         if extensions:
                             files = [f for f in files if f.endswith(extensions)]
                         for file in sorted(files):
