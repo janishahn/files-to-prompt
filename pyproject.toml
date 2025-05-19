@@ -1,6 +1,6 @@
 [project]
 name = "files-to-prompt-ext"
-version = "0.6.3"
+version = "0.6.4"
 description = "Build project file/directory context prompts for use with LLMs"
 readme = "README.md"
 authors = [{name = "Janis Hahn"}]
@@ -10,7 +10,8 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License"
 ]
 dependencies = [
-    "click"
+    "click",
+    "tiktoken"
 ]
 
 [project.urls]

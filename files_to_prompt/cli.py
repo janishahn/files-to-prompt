@@ -1,7 +1,7 @@
 import os
 import sys
 from fnmatch import fnmatch
-
+import tiktoken
 import click
 
 global_index = 1
@@ -639,3 +639,9 @@ def cli(
     finally:
         if fp:
             fp.close()
+            # Count tokens in output file after closing
+            with open(output_file, "r", encoding="utf-8") as f:
+                content = f.read()
+                enc = tiktoken.get_encoding("o200k_base")
+                token_count = len(enc.encode(content))
+                click.echo(f"Token count: {token_count}", err=True)
