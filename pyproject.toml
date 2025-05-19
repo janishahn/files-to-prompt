@@ -1,6 +1,6 @@
 [project]
 name = "files-to-prompt-ext"
-version = "0.6.2"
+version = "0.6.3"
 description = "Build project file/directory context prompts for use with LLMs"
 readme = "README.md"
 authors = [{name = "Janis Hahn"}]

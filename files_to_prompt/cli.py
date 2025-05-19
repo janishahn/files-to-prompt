@@ -149,6 +149,12 @@ def process_path(
     if os.path.isfile(path):
         if path == output_path:
             return
+        
+        # Apply ignore_patterns to individual files as well
+        if ignore_patterns and not ignore_files_only:
+            if should_ignore(path, list(ignore_patterns)):
+                return
+        
         try:
             with open(path, "r") as f:
                 content = f.read()
@@ -174,8 +180,9 @@ def process_path(
 
             if ignore_patterns:
                 if not ignore_files_only:
-                    dirs[:] = [d for d in dirs if not any(fnmatch(d, pattern) for pattern in ignore_patterns)]
-                files = [f for f in files if not any(fnmatch(f, pattern) for pattern in ignore_patterns)]
+                    dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), list(ignore_patterns))]
+                # Always apply ignore patterns to files
+                files = [f for f in files if not should_ignore(os.path.join(root, f), list(ignore_patterns))]
 
             if extensions:
                 files = [f for f in files if any(f.endswith(ext) for ext in extensions)]
@@ -238,38 +245,17 @@ def generate_directory_structure(
     levels: list[bool] = None,
     parent_ignored: bool = False,
 ) -> str:
-    """Generate a tree-like structure representation of directories and files.
-
-    Parameters
-    ----------
-    path : str
-        Path to process
-    extensions : tuple[str, ...]
-        File extensions to include
-    include_hidden : bool
-        Whether to include hidden files/directories
-    ignore_files_only : bool
-        Whether to only ignore files matching patterns
-    ignore_gitignore : bool
-        Whether to ignore .gitignore rules
-    gitignore_rules : list[str]
-        List of gitignore patterns
-    ignore_patterns : tuple[str, ...]
-        Patterns to ignore
-    levels : list[bool], optional
-        List tracking the tree structure levels
-
-    Returns
-    -------
-    str
-        Formatted string representation of the directory structure
-    """
     if levels is None:
         levels = []
-
-    result = []
     
+    result = []
     name = os.path.basename(path)
+
+    # Check if this path should be ignored
+    is_dir_ignored = ignore_patterns and should_ignore(path, list(ignore_patterns))
+    if is_dir_ignored and not ignore_files_only:
+        return ""
+    
     if os.path.isfile(path):
         result.append(f"{format_tree_prefix(levels)}{name}")
         return "\n".join(result)
@@ -280,54 +266,52 @@ def generate_directory_structure(
         return "\n".join(result)
 
     items = os.listdir(path)
-    
-    # Apply filters and collect items
     filtered_items = []
+    
     for item in items:
         item_path = os.path.join(path, item)
 
+        # Skip hidden files/dirs if not included
         if not include_hidden and item.startswith('.'):
             continue
 
+        # Check gitignore rules
         if not ignore_gitignore and should_ignore(item_path, gitignore_rules):
             continue
 
+        # Handle directories
         if os.path.isdir(item_path):
-            # Only apply ignore_patterns to directories if ignore_files_only is False
-            should_ignore_dir = False
+            # Check if directory should be ignored (only if not ignore_files_only)
             if ignore_patterns and not ignore_files_only:
-                if any(fnmatch(item, pattern) for pattern in ignore_patterns):
-                    should_ignore_dir = True
+                if should_ignore(item_path, list(ignore_patterns)):
+                    continue
             
-            # If ignore_files_only is True, we always include the directory
-            # Otherwise, check if it should be ignored
-            if ignore_files_only or not should_ignore_dir:
-                # Mark this directory as ignored for its children if it matches ignore patterns
-                is_ignored = ignore_patterns and any(fnmatch(item, pattern) for pattern in ignore_patterns)
-                filtered_items.append((item, is_ignored))
+            # Always include directories in filtered_items when using ignore_files_only
+            filtered_items.append((item, ignore_patterns and should_ignore(item_path, list(ignore_patterns))))
+            
+        # Handle files
         elif os.path.isfile(item_path):
-            # Apply ignore_patterns to files based on the flags
-            if ignore_patterns:
-                # When ignore_files_only is True and we're in an ignored directory,
-                # we should still include the file
-                if not (ignore_files_only and parent_ignored):
-                    # Otherwise, check if the file matches any ignore pattern
-                    if any(fnmatch(item, pattern) for pattern in ignore_patterns):
-                        continue
+            # Skip files not matching extensions
             if extensions and not any(item.endswith(ext) for ext in extensions):
                 continue
+            
+            # Skip files matching ignore patterns
+            if ignore_patterns and should_ignore(item_path, list(ignore_patterns)):
+                continue
+                
+            # In ignore-files-only mode, also skip files in ignored parent directories
+            if ignore_files_only and (parent_ignored or is_dir_ignored):
+                continue
+                
             filtered_items.append((item, False))
-        else:
-            # Handle other file types if necessary, or skip
-            pass
 
-    # Sort items (directories and files together)
+    # Sort and process items
     filtered_items.sort()
     
-    # Process items
-    for i, (item, is_ignored) in enumerate(filtered_items):
+    for i, (item, is_item_ignored) in enumerate(filtered_items):
         item_path = os.path.join(path, item)
         is_last = i == len(filtered_items) - 1
+        
         if os.path.isdir(item_path):
             result.append(
                 generate_directory_structure(
@@ -339,13 +323,13 @@ def generate_directory_structure(
                     gitignore_rules,
                     ignore_patterns,
                     levels + [is_last],
-                    is_ignored  # Pass whether this directory was marked as ignored
+                    parent_ignored or is_dir_ignored or is_item_ignored
                 )
             )
-        elif os.path.isfile(item_path):
+        else:
             result.append(f"{format_tree_prefix(levels + [is_last])}{item}")
 
-    return "\n".join(result)
+    return "\n".join(filter(None, result))
 
 
 def print_structure(writer, structure_str: str, cxml: bool, markdown: bool, is_last_block=False) -> None:

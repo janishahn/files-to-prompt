@@ -861,3 +861,152 @@ def test_ignore_and_extension_interaction(tmpdir):
         assert "test_dir/other.txt" in result3.output
         assert "Text file, wrong extension" in result3.output
         assert "test_dir/another_include.md" not in result3.output
+
+
+def test_struct_ignore_directory_patterns(tmpdir):
+    """Test that directory ignore patterns work correctly in struct mode."""
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        # Create a test directory structure
+        os.makedirs("test_dir/node_modules/some_package")
+        os.makedirs("test_dir/build/output")
+        os.makedirs("test_dir/src/components")
+        os.makedirs("test_dir/docs")
+        
+        # Create some files in each directory
+        with open("test_dir/node_modules/some_package/index.js", "w") as f:
+            f.write("// Package code")
+        with open("test_dir/build/output/bundle.js", "w") as f:
+            f.write("// Bundled code")
+        with open("test_dir/src/components/app.js", "w") as f:
+            f.write("// App component")
+        with open("test_dir/docs/readme.md", "w") as f:
+            f.write("# Documentation")
+        
+        # Test with trailing slash pattern
+        result1 = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "node_modules/"])
+        assert result1.exit_code == 0
+        assert "node_modules" not in result1.output
+        assert "build" in result1.output
+        assert "src" in result1.output
+        assert "docs" in result1.output
+        
+        # Test without trailing slash pattern
+        result2 = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "build"])
+        assert result2.exit_code == 0
+        assert "node_modules" in result2.output
+        assert "build" not in result2.output
+        assert "src" in result2.output
+        assert "docs" in result2.output
+        
+        # Test with multiple patterns
+        result3 = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "node_modules/", "--ignore", "build"])
+        assert result3.exit_code == 0
+        assert "node_modules" not in result3.output
+        assert "build" not in result3.output
+        assert "src" in result3.output
+        assert "docs" in result3.output
+        
+        # Test with ignore-files-only flag
+        result4 = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "node_modules/", "--ignore-files-only"])
+        assert result4.exit_code == 0
+        assert "node_modules" in result4.output
+        assert "some_package" in result4.output
+        assert "index.js" not in result4.output  # File should still be ignored
+        assert "build" in result4.output
+        assert "src" in result4.output
+        assert "docs" in result4.output
+
+
+def test_struct_ignore_nested_directory_patterns(tmpdir):
+    """Test that nested directory ignore patterns work correctly in struct mode."""
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        # Create a nested test directory structure
+        os.makedirs("test_dir/frontend/node_modules/package")
+        os.makedirs("test_dir/frontend/src")
+        os.makedirs("test_dir/backend/node_modules/package")
+        os.makedirs("test_dir/backend/src")
+        
+        # Create some files
+        with open("test_dir/frontend/node_modules/package/index.js", "w") as f:
+            f.write("// Frontend package")
+        with open("test_dir/frontend/src/app.js", "w") as f:
+            f.write("// Frontend code")
+        with open("test_dir/backend/node_modules/package/index.js", "w") as f:
+            f.write("// Backend package")
+        with open("test_dir/backend/src/server.js", "w") as f:
+            f.write("// Backend code")
+        
+        # Test ignoring all node_modules directories
+        result = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "node_modules"])
+        assert result.exit_code == 0
+        assert "frontend" in result.output
+        assert "backend" in result.output
+        assert "node_modules" not in result.output
+        assert "src" in result.output
+        
+        # Ensure both frontend/src and backend/src are present
+        assert "frontend/\n" in result.output.replace(" ", "")
+        assert "├──src/" in result.output.replace(" ", "") or "└──src/" in result.output.replace(" ", "")
+        assert "backend/\n" in result.output.replace(" ", "")
+        assert "├──src/" in result.output.replace(" ", "") or "└──src/" in result.output.replace(" ", "")
+        
+        # Test with pattern that matches part of a directory name
+        result2 = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "*end*"])
+        assert result2.exit_code == 0
+        assert "frontend" not in result2.output
+        assert "backend" not in result2.output
+
+
+def test_struct_ignore_pattern_vs_should_ignore(tmpdir):
+    """Test that should_ignore() function and struct mode handle the same patterns identically."""
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        # Create directories and files that would be tested by both code paths
+        os.makedirs("test_dir/dist")
+        os.makedirs("test_dir/node_modules")
+        os.makedirs("test_dir/src")
+        
+        with open("test_dir/dist/bundle.js", "w") as f:
+            f.write("// Bundle")
+        with open("test_dir/node_modules/package.json", "w") as f:
+            f.write("// Package")
+        with open("test_dir/src/index.js", "w") as f:
+            f.write("// Source")
+        
+        # Test struct mode with trailing slash
+        result_struct1 = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "dist/"])
+        assert "dist" not in result_struct1.output
+        assert "node_modules" in result_struct1.output
+        assert "src" in result_struct1.output
+        
+        # Test content mode with trailing slash
+        result_content1 = runner.invoke(cli, ["test_dir", "--ignore", "dist/"])
+        assert "test_dir/dist/bundle.js" not in result_content1.output
+        assert "test_dir/node_modules/package.json" in result_content1.output
+        assert "test_dir/src/index.js" in result_content1.output
+        
+        # Test struct mode without trailing slash
+        result_struct2 = runner.invoke(cli, ["test_dir", "--struct", "--ignore", "node_modules"])
+        assert "dist" in result_struct2.output
+        assert "node_modules" not in result_struct2.output
+        assert "src" in result_struct2.output
+        
+        # Test content mode without trailing slash
+        result_content2 = runner.invoke(cli, ["test_dir", "--ignore", "node_modules"])
+        assert "test_dir/dist/bundle.js" in result_content2.output
+        assert "test_dir/node_modules/package.json" not in result_content2.output
+        assert "test_dir/src/index.js" in result_content2.output
+        
+        # Verify consistency between both modes
+        for pattern in ["dist", "dist/", "node_modules", "node_modules/"]:
+            struct_result = runner.invoke(cli, ["test_dir", "--struct", "--ignore", pattern])
+            content_result = runner.invoke(cli, ["test_dir", "--ignore", pattern])
+            
+            # If pattern appears in struct output, corresponding files should appear in content output
+            pattern_in_struct = pattern.rstrip("/") in struct_result.output
+            files_in_content = f"test_dir/{pattern.rstrip('/')}" in content_result.output
+            
+            # The negation ensures they match: either both present or both absent
+            assert not (pattern_in_struct ^ files_in_content)
