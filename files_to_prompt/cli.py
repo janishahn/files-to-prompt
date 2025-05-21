@@ -229,8 +229,12 @@ def process_path(
                 if not ignore_files_only:
                     # When not in ignore_files_only mode, filter out directories matching patterns
                     dirs[:] = [d for d in dirs if not should_ignore_relpath(os.path.join(root, d), root, list(ignore_patterns))]
-                # Always filter files that match patterns
-                files = [f for f in files if not should_ignore_relpath(os.path.join(root, f), root, list(ignore_patterns))]
+                    # Filter files that match patterns
+                    files = [f for f in files if not should_ignore_relpath(os.path.join(root, f), root, list(ignore_patterns))]
+                else:
+                    # In ignore_files_only mode, only filter files by their basename (not full path)
+                    # This ensures we still include files in directories matching ignore patterns
+                    files = [f for f in files if not any(fnmatch(f, pat) for pat in ignore_patterns)]
 
             if extensions:
                 files = [f for f in files if any(f.endswith(ext) for ext in extensions)]
