@@ -43,6 +43,10 @@ def should_ignore(path, gitignore_rules):
     path_parts = path.split(os.sep)
     
     for rule in gitignore_rules:
+        # Skip empty rules
+        if not rule:
+            continue
+            
         rule = rule.rstrip('/')  # Remove trailing slash for pattern matching
         
         # Case 1: Rule contains a slash - treat as path relative to gitignore location
@@ -183,6 +187,8 @@ def process_path(
         Path to output file, by default None
     is_last_section : bool, optional
         Whether this is the last section to be processed, by default False
+    global_last_file : str, optional
+        Path to the last file that will be processed
     """
     if os.path.isfile(path):
         if path == output_path:
@@ -190,6 +196,9 @@ def process_path(
         
         # Apply ignore_patterns to individual files as well
         if ignore_patterns and not ignore_files_only:
+            if should_ignore(path, list(ignore_patterns)):
+                return
+        elif ignore_patterns and ignore_files_only:
             if should_ignore(path, list(ignore_patterns)):
                 return
         
@@ -218,7 +227,9 @@ def process_path(
 
             if ignore_patterns:
                 if not ignore_files_only:
+                    # When not in ignore_files_only mode, filter out directories matching patterns
                     dirs[:] = [d for d in dirs if not should_ignore_relpath(os.path.join(root, d), root, list(ignore_patterns))]
+                # Always filter files that match patterns
                 files = [f for f in files if not should_ignore_relpath(os.path.join(root, f), root, list(ignore_patterns))]
 
             if extensions:
