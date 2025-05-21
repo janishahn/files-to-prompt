@@ -25,11 +25,49 @@ EXT_TO_LANG = {
 
 
 def should_ignore(path, gitignore_rules):
+    """Check if a path should be ignored based on gitignore rules.
+    
+    Parameters
+    ----------
+    path : str
+        The path to check
+    gitignore_rules : list[str]
+        List of gitignore patterns
+        
+    Returns
+    -------
+    bool
+        True if the path should be ignored, False otherwise
+    """
+    path = os.path.normpath(path)
+    path_parts = path.split(os.sep)
+    
     for rule in gitignore_rules:
-        if fnmatch(os.path.basename(path), rule):
-            return True
-        if os.path.isdir(path) and fnmatch(os.path.basename(path) + "/", rule):
-            return True
+        rule = rule.rstrip('/')  # Remove trailing slash for pattern matching
+        
+        # Case 1: Rule contains a slash - treat as path relative to gitignore location
+        if '/' in rule:
+            rule_parts = rule.split('/')
+            # Check if we have enough parts to match
+            if len(path_parts) >= len(rule_parts):
+                # Try to match the rule at the end of the path
+                for i in range(len(path_parts) - len(rule_parts) + 1):
+                    if all(fnmatch(path_parts[i+j], rule_parts[j]) for j in range(len(rule_parts))):
+                        return True
+                
+        # Case 2: Simple pattern (no slash) - match anywhere in the path
+        else:
+            # Check if rule ends with /, which means it's a directory
+            is_dir_pattern = rule.endswith('/')
+            
+            # For directory patterns, check only against directory parts
+            if is_dir_pattern and os.path.isdir(path):
+                if fnmatch(os.path.basename(path), rule[:-1]):
+                    return True
+            # Regular file pattern - match any filename component
+            elif any(fnmatch(part, rule) for part in path_parts):
+                return True
+            
     return False
 
 
@@ -175,13 +213,13 @@ def process_path(
 
             if not ignore_gitignore:
                 gitignore_rules.extend(read_gitignore(root))
-                dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), gitignore_rules)]
-                files = [f for f in files if not should_ignore(os.path.join(root, f), gitignore_rules)]
+                dirs[:] = [d for d in dirs if not should_ignore_relpath(os.path.join(root, d), root, gitignore_rules)]
+                files = [f for f in files if not should_ignore_relpath(os.path.join(root, f), root, gitignore_rules)]
 
             if ignore_patterns:
                 if not ignore_files_only:
-                    dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), list(ignore_patterns))]
-                files = [f for f in files if not should_ignore(os.path.join(root, f), list(ignore_patterns))]
+                    dirs[:] = [d for d in dirs if not should_ignore_relpath(os.path.join(root, d), root, list(ignore_patterns))]
+                files = [f for f in files if not should_ignore_relpath(os.path.join(root, f), root, list(ignore_patterns))]
 
             if extensions:
                 files = [f for f in files if any(f.endswith(ext) for ext in extensions)]
@@ -233,6 +271,28 @@ def format_tree_prefix(levels: list[bool]) -> str:
     return "".join(result)
 
 
+def should_ignore_relpath(path: str, base: str, gitignore_rules: list[str]) -> bool:
+    """
+    Check if a path (relative to base) should be ignored using gitignore rules.
+
+    Parameters
+    ----------
+    path : str
+        Path relative to base
+    base : str
+        Base directory where .gitignore applies
+    gitignore_rules : list[str]
+        List of gitignore patterns
+
+    Returns
+    -------
+    bool
+        True if the path matches a gitignore pattern, False otherwise
+    """
+    abs_path = os.path.normpath(os.path.join(base, path))
+    return should_ignore(abs_path, gitignore_rules)
+
+
 def generate_directory_structure(
     path: str,
     extensions: tuple[str, ...],
@@ -256,6 +316,9 @@ def generate_directory_structure(
         return ""
     
     if os.path.isfile(path):
+        # Check if this file should be ignored by gitignore rules
+        if not ignore_gitignore and should_ignore(path, gitignore_rules):
+            return ""
         result.append(f"{format_tree_prefix(levels)}{name}")
         return "\n".join(result)
 
@@ -282,7 +345,7 @@ def generate_directory_structure(
             continue
 
         # Check gitignore rules
-        if not ignore_gitignore and should_ignore(item_path, all_gitignore_rules):
+        if not ignore_gitignore and should_ignore_relpath(item_path, path, all_gitignore_rules):
             continue
 
         # Handle directories
@@ -333,6 +396,9 @@ def generate_directory_structure(
                 )
             )
         else:
+            # For files, check gitignore rules again to ensure specific file patterns in directories are respected
+            if not ignore_gitignore and should_ignore(item_path, all_gitignore_rules):
+                continue
             result.append(f"{format_tree_prefix(levels + [is_last])}{item}")
 
     return "\n".join(filter(None, result))
@@ -608,8 +674,8 @@ def cli(
                             files = [f for f in files if not f.startswith('.')]
                         if not ignore_gitignore:
                             gitignore_rules.extend(read_gitignore(root))
-                            dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), gitignore_rules)]
-                            files = [f for f in files if not should_ignore(os.path.join(root, f), gitignore_rules)]
+                            dirs[:] = [d for d in dirs if not should_ignore_relpath(os.path.join(root, d), root, gitignore_rules)]
+                            files = [f for f in files if not should_ignore_relpath(os.path.join(root, f), root, gitignore_rules)]
                         if ignore_patterns:
                             if not ignore_files_only:
                                 dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), list(ignore_patterns))]

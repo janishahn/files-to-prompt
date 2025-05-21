@@ -1094,3 +1094,166 @@ def test_structure_flag_with_gitignore_and_ignore(tmpdir):
         assert "src/" in result3.output
         assert "docs/" not in result3.output  # Ignored by --ignore
         assert "build/" in result3.output  # No longer ignored by gitignore
+
+
+def test_gitignore_respected_with_content_output(tmpdir):
+    """Test that .gitignore is respected with default content output."""
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        # Create project structure
+        os.makedirs("test_project/ignored_dir")
+        os.makedirs("test_project/src")
+
+        # Create .gitignore
+        with open("test_project/.gitignore", "w") as f:
+            f.write("ignored_file.txt\n")
+            f.write("ignored_dir/\n")
+            f.write("*.log\n")
+            f.write("specific_pattern_ignored.*\n")
+
+        # Create files
+        with open("test_project/main.py", "w") as f:
+            f.write("# Content of main.py")
+        with open("test_project/utils.py", "w") as f:
+            f.write("# Content of utils.py")
+        with open("test_project/ignored_file.txt", "w") as f:
+            f.write("This content should be ignored by .gitignore.")
+        with open("test_project/important.log", "w") as f:
+            f.write("This log content should be ignored by .gitignore.")
+        with open("test_project/another_file.txt", "w") as f:
+            f.write("Content of another_file.txt")
+        with open("test_project/ignored_dir/sub_file.txt", "w") as f:
+            f.write("Content of sub_file.txt in ignored_dir.")
+        with open("test_project/ignored_dir/another_sub_file.py", "w") as f:
+            f.write("# Content of another_sub_file.py in ignored_dir.")
+        with open("test_project/src/component.js", "w") as f:
+            f.write("// Content of component.js")
+        with open("test_project/src/style.css", "w") as f:
+            f.write("/* Content of style.css */")
+        with open("test_project/specific_pattern_ignored.data", "w") as f:
+            f.write("This specific pattern data should be ignored.")
+
+        # Test 1: Default behavior (respect .gitignore)
+        result1 = runner.invoke(cli, ["test_project"])
+        assert result1.exit_code == 0
+        output1 = result1.output
+
+        assert "test_project/main.py" in output1
+        assert "# Content of main.py" in output1
+        assert "test_project/utils.py" in output1
+        assert "# Content of utils.py" in output1
+        assert "test_project/another_file.txt" in output1
+        assert "Content of another_file.txt" in output1
+        assert "test_project/src/component.js" in output1
+        assert "// Content of component.js" in output1
+        assert "test_project/src/style.css" in output1
+        assert "/* Content of style.css */" in output1
+
+        assert "test_project/ignored_file.txt" not in output1
+        assert "This content should be ignored by .gitignore." not in output1
+        assert "test_project/important.log" not in output1
+        assert "This log content should be ignored by .gitignore." not in output1
+        assert "test_project/ignored_dir/sub_file.txt" not in output1
+        assert "Content of sub_file.txt in ignored_dir." not in output1
+        assert "test_project/ignored_dir/another_sub_file.py" not in output1
+        assert "# Content of another_sub_file.py in ignored_dir." not in output1
+        assert "test_project/specific_pattern_ignored.data" not in output1
+        assert "This specific pattern data should be ignored." not in output1
+
+        # Test 2: With additional --ignore flag
+        result2 = runner.invoke(cli, ["test_project", "--ignore", "*.css"])
+        assert result2.exit_code == 0
+        output2 = result2.output
+
+        assert "test_project/main.py" in output2
+        assert "test_project/utils.py" in output2
+        assert "test_project/another_file.txt" in output2
+        assert "test_project/src/component.js" in output2
+
+        assert "test_project/src/style.css" not in output2  # Ignored by --ignore
+        assert "/* Content of style.css */" not in output2
+
+        # .gitignore rules should still be respected
+        assert "test_project/ignored_file.txt" not in output2
+        assert "test_project/important.log" not in output2
+        assert "test_project/ignored_dir/sub_file.txt" not in output2
+        assert "test_project/specific_pattern_ignored.data" not in output2
+
+
+def test_gitignore_respected_with_structure_output(tmpdir):
+    """Test that .gitignore is respected with --struct flag."""
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        # Create project structure
+        os.makedirs("test_project/ignored_dir/sub_ignored_dir")
+        os.makedirs("test_project/src")
+        os.makedirs("test_project/data")
+
+        # Create .gitignore
+        with open("test_project/.gitignore", "w") as f:
+            f.write("ignored_file.txt\n")
+            f.write("ignored_dir/\n") # Entire directory
+            f.write("*.log\n")
+            f.write("sensitive_data.csv\n") # Changed to a filename pattern instead of path pattern
+
+        # Create files
+        with open("test_project/main.py", "w") as f:
+            f.write("# Content of main.py")
+        with open("test_project/ignored_file.txt", "w") as f:
+            f.write("This content should be ignored.")
+        with open("test_project/important.log", "w") as f:
+            f.write("This log should be ignored.")
+        with open("test_project/another_file.txt", "w") as f:
+            f.write("Content of another_file.txt")
+        with open("test_project/ignored_dir/sub_file.txt", "w") as f:
+            f.write("Content of sub_file.txt in ignored_dir.")
+        with open("test_project/ignored_dir/sub_ignored_dir/deep_file.txt", "w") as f:
+            f.write("Content of deep_file.txt in sub_ignored_dir.")
+        with open("test_project/src/component.js", "w") as f:
+            f.write("// Content of component.js")
+        with open("test_project/data/public_data.csv", "w") as f:
+            f.write("Public data")
+        with open("test_project/data/sensitive_data.csv", "w") as f:
+            f.write("Sensitive data")
+
+
+        # Test 1: --struct respects .gitignore
+        result1 = runner.invoke(cli, ["test_project", "--struct"])
+        assert result1.exit_code == 0
+        output1 = result1.output
+
+        # First verify presence of expected files
+        assert "main.py" in output1, f"Expected main.py in output:\n{output1}"
+        assert "another_file.txt" in output1, f"Expected another_file.txt in output:\n{output1}"
+        assert "src/" in output1, f"Expected src/ in output:\n{output1}"
+        assert "component.js" in output1, f"Expected component.js in output:\n{output1}"
+        assert "data/" in output1, f"Expected data/ in output:\n{output1}"
+        assert "public_data.csv" in output1, f"Expected public_data.csv in output:\n{output1}"
+
+        # Then verify absence of ignored files
+        assert "ignored_file.txt" not in output1, f"ignored_file.txt should be ignored:\n{output1}"
+        assert "important.log" not in output1, f"important.log should be ignored:\n{output1}"
+        assert "ignored_dir/" not in output1, f"ignored_dir/ should be ignored:\n{output1}"
+        assert "sub_file.txt" not in output1, f"sub_file.txt should be ignored:\n{output1}"
+        assert "sub_ignored_dir/" not in output1, f"sub_ignored_dir/ should be ignored:\n{output1}"
+        assert "deep_file.txt" not in output1, f"deep_file.txt should be ignored:\n{output1}"
+        assert "sensitive_data.csv" not in output1, f"sensitive_data.csv should be ignored:\n{output1}"
+
+        # Test 2: --struct with additional --ignore flag
+        result2 = runner.invoke(cli, ["test_project", "--struct", "--ignore", "src/"])
+        assert result2.exit_code == 0
+        output2 = result2.output
+
+        assert "main.py" in output2
+        assert "another_file.txt" in output2
+        assert "data/" in output2
+        assert "public_data.csv" in output2
+
+        assert "src/" not in output2 # Ignored by --ignore
+        assert "component.js" not in output2
+
+        # .gitignore rules should still be respected
+        assert "ignored_file.txt" not in output2
+        assert "important.log" not in output2
+        assert "ignored_dir/" not in output2
+        assert "sensitive_data.csv" not in output2
