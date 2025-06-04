@@ -90,6 +90,27 @@ def test_ignore_gitignore(tmpdir):
         }
 
 
+def test_nested_gitignore_scoped(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("project/subA")
+        os.makedirs("project/subB")
+
+        with open("project/subA/.gitignore", "w") as f:
+            f.write("ignore_me.txt\n")
+
+        with open("project/subA/ignore_me.txt", "w") as f:
+            f.write("ignore this")
+
+        with open("project/subB/ignore_me.txt", "w") as f:
+            f.write("should be included")
+
+        result = runner.invoke(cli, ["project"])
+        assert result.exit_code == 0
+        assert "project/subA/ignore_me.txt" not in result.output
+        assert "project/subB/ignore_me.txt" in result.output
+
+
 def test_multiple_paths(tmpdir):
     runner = CliRunner()
     with tmpdir.as_cwd():
