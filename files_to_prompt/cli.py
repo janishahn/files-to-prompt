@@ -1,6 +1,8 @@
 import os
 import sys
 from fnmatch import fnmatch
+from typing import Optional
+
 import tiktoken
 import click
 
@@ -150,7 +152,7 @@ def collect_files(
     ignore_gitignore: bool,
     parent_rules: list[tuple[str, str]],
     ignore_patterns: tuple[str, ...],
-    output_path: str | None,
+    output_path: Optional[str],
 ) -> list[str]:
     files: list[str] = []
 
