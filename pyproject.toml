@@ -22,3 +22,6 @@ files-to-prompt = "files_to_prompt.cli:cli"
 
 [project.optional-dependencies]
 test = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["files_to_prompt*"]

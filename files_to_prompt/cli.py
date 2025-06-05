@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import os
 import sys
 from fnmatch import fnmatch
+from typing import Optional
+
 import tiktoken
 import click
 
@@ -24,63 +28,64 @@ EXT_TO_LANG = {
 }
 
 
-def should_ignore(path, gitignore_rules):
+def should_ignore(path: str, gitignore_rules: list[tuple[str, str]]) -> bool:
     """Check if a path should be ignored based on gitignore rules.
-    
+
     Parameters
     ----------
     path : str
-        The path to check
-    gitignore_rules : list[str]
-        List of gitignore patterns
-        
+        The absolute path to check
+    gitignore_rules : list[tuple[str, str]]
+        List of tuples ``(base, pattern)`` from ``.gitignore`` files
+
     Returns
     -------
     bool
         True if the path should be ignored, False otherwise
     """
+
     path = os.path.normpath(path)
-    path_parts = path.split(os.sep)
-    
-    for rule in gitignore_rules:
-        # Skip empty rules
+
+    for base, rule in gitignore_rules:
         if not rule:
             continue
-            
+
+        # Only apply rule if path is within the directory that defined it
+        rel_path = os.path.relpath(path, base)
+        if rel_path.startswith(os.pardir):
+            continue
+
+        path_parts = rel_path.split(os.sep)
+
         rule = rule.rstrip('/')  # Remove trailing slash for pattern matching
-        
-        # Case 1: Rule contains a slash - treat as path relative to gitignore location
+
         if '/' in rule:
             rule_parts = rule.split('/')
-            # Check if we have enough parts to match
             if len(path_parts) >= len(rule_parts):
-                # Try to match the rule at the end of the path
                 for i in range(len(path_parts) - len(rule_parts) + 1):
-                    if all(fnmatch(path_parts[i+j], rule_parts[j]) for j in range(len(rule_parts))):
+                    if all(fnmatch(path_parts[i + j], rule_parts[j]) for j in range(len(rule_parts))):
                         return True
-                
-        # Case 2: Simple pattern (no slash) - match anywhere in the path
         else:
-            # Check if rule ends with /, which means it's a directory
             is_dir_pattern = rule.endswith('/')
-            
-            # For directory patterns, check only against directory parts
             if is_dir_pattern and os.path.isdir(path):
                 if fnmatch(os.path.basename(path), rule[:-1]):
                     return True
-            # Regular file pattern - match any filename component
             elif any(fnmatch(part, rule) for part in path_parts):
                 return True
-            
+
     return False
 
 
-def read_gitignore(path):
+def read_gitignore(path: str) -> list[tuple[str, str]]:
+    """Return gitignore patterns for the given path as ``(base, pattern)``."""
+
     gitignore_path = os.path.join(path, ".gitignore")
     if os.path.isfile(gitignore_path):
         with open(gitignore_path, "r") as f:
             return [
-                line.strip() for line in f if line.strip() and not line.startswith("#")
+                (path, line.strip())
+                for line in f
+                if line.strip() and not line.startswith("#")
             ]
     return []
 
@@ -141,6 +146,77 @@ def print_as_markdown(writer, path, content, line_numbers):
     writer(f"{backticks}")
 
 
+def collect_files(
+    current_path: str,
+    extensions: tuple[str, ...],
+    include_hidden: bool,
+    ignore_files_only: bool,
+    ignore_gitignore: bool,
+    parent_rules: list[tuple[str, str]],
+    ignore_patterns: tuple[str, ...],
+    output_path: Optional[str],
+) -> list[str]:
+    files: list[str] = []
+
+    if os.path.isfile(current_path):
+        if current_path == output_path:
+            return files
+        if not ignore_gitignore and should_ignore(current_path, parent_rules):
+            return files
+        if ignore_patterns:
+            if ignore_files_only:
+                if any(fnmatch(os.path.basename(current_path), p) for p in ignore_patterns):
+                    return files
+            else:
+                if should_ignore(current_path, [(os.sep, p) for p in ignore_patterns]):
+                    return files
+        if extensions and not any(current_path.endswith(ext) for ext in extensions):
+            return files
+        files.append(current_path)
+        return files
+
+    if os.path.isdir(current_path):
+        local_rules = parent_rules
+        if not ignore_gitignore:
+            local_rules = parent_rules + read_gitignore(current_path)
+
+        for entry in sorted(os.listdir(current_path)):
+            if not include_hidden and entry.startswith('.'):
+                continue
+
+            entry_path = os.path.join(current_path, entry)
+
+            if not ignore_gitignore and should_ignore(entry_path, local_rules):
+                continue
+
+            if ignore_patterns:
+                if os.path.isdir(entry_path):
+                    if not ignore_files_only and should_ignore(entry_path, [(os.sep, p) for p in ignore_patterns]):
+                        continue
+                else:
+                    if ignore_files_only:
+                        if any(fnmatch(os.path.basename(entry_path), p) for p in ignore_patterns):
+                            continue
+                    else:
+                        if should_ignore(entry_path, [(os.sep, p) for p in ignore_patterns]):
+                            continue
+
+            files.extend(
+                collect_files(
+                    entry_path,
+                    extensions,
+                    include_hidden,
+                    ignore_files_only,
+                    ignore_gitignore,
+                    local_rules,
+                    ignore_patterns,
+                    output_path,
+                )
+            )
+
+    return files
+
+
 def process_path(
     path,
     extensions,
@@ -157,98 +233,36 @@ def process_path(
     is_last_section=False,
     global_last_file=None,
 ):
-    """Process a file or directory path and output its contents.
+    """Process a file or directory path and output its contents."""
 
-    Parameters
-    ----------
-    path : str
-        Path to process
-    extensions : tuple[str, ...]
-        File extensions to include
-    include_hidden : bool
-        Whether to include hidden files/directories
-    ignore_files_only : bool
-        Whether to only ignore files matching patterns
-    ignore_gitignore : bool
-        Whether to ignore .gitignore rules
-    gitignore_rules : list[str]
-        List of gitignore patterns
-    ignore_patterns : tuple[str, ...]
-        Patterns to ignore
-    writer : callable
-        Function to write output
-    claude_xml : bool
-        Whether to use XML format
-    markdown : bool
-        Whether to use Markdown format
-    line_numbers : bool, optional
-        Whether to add line numbers, by default False
-    output_path : str, optional
-        Path to output file, by default None
-    is_last_section : bool, optional
-        Whether this is the last section to be processed, by default False
-    global_last_file : str, optional
-        Path to the last file that will be processed
-    """
-    if os.path.isfile(path):
-        if path == output_path:
-            return
-        
-        # Apply ignore_patterns to individual files as well
-        if ignore_patterns and not ignore_files_only:
-            if should_ignore(path, list(ignore_patterns)):
-                return
-        elif ignore_patterns and ignore_files_only:
-            if should_ignore(path, list(ignore_patterns)):
-                return
-        
+    all_files = collect_files(
+        path,
+        extensions,
+        include_hidden,
+        ignore_files_only,
+        ignore_gitignore,
+        gitignore_rules,
+        ignore_patterns,
+        output_path,
+    )
+
+    for file_path in all_files:
         try:
-            with open(path, "r") as f:
+            with open(file_path, "r") as f:
                 content = f.read()
-                print_path(writer, path, content, claude_xml, markdown, line_numbers, is_last_section=(path == global_last_file))
+                print_path(
+                    writer,
+                    file_path,
+                    content,
+                    claude_xml,
+                    markdown,
+                    line_numbers,
+                    is_last_section=(file_path == global_last_file),
+                )
         except UnicodeDecodeError:
-            rel_path = os.path.relpath(path)
+            rel_path = os.path.relpath(file_path)
             warning_message = f"Warning: Skipping file {rel_path} due to UnicodeDecodeError"
             click.echo(click.style(warning_message, fg="red"), err=True)
-    elif os.path.isdir(path):
-        for root, dirs, files in os.walk(path):
-            if output_path and os.path.dirname(output_path) == root:
-                if os.path.basename(output_path) in files:
-                    files.remove(os.path.basename(output_path))
-
-            if not include_hidden:
-                dirs[:] = [d for d in dirs if not d.startswith('.')]
-                files = [f for f in files if not f.startswith('.')]
-
-            if not ignore_gitignore:
-                gitignore_rules.extend(read_gitignore(root))
-                dirs[:] = [d for d in dirs if not should_ignore_relpath(os.path.join(root, d), root, gitignore_rules)]
-                files = [f for f in files if not should_ignore_relpath(os.path.join(root, f), root, gitignore_rules)]
-
-            if ignore_patterns:
-                if not ignore_files_only:
-                    # When not in ignore_files_only mode, filter out directories matching patterns
-                    dirs[:] = [d for d in dirs if not should_ignore_relpath(os.path.join(root, d), root, list(ignore_patterns))]
-                    # Filter files that match patterns
-                    files = [f for f in files if not should_ignore_relpath(os.path.join(root, f), root, list(ignore_patterns))]
-                else:
-                    # In ignore_files_only mode, only filter files by their basename (not full path)
-                    # This ensures we still include files in directories matching ignore patterns
-                    files = [f for f in files if not any(fnmatch(f, pat) for pat in ignore_patterns)]
-
-            if extensions:
-                files = [f for f in files if any(f.endswith(ext) for ext in extensions)]
-
-            for idx, file in enumerate(sorted(files)):
-                file_path = os.path.join(root, file)
-                try:
-                    with open(file_path, "r") as f:
-                        content = f.read()
-                        print_path(writer, file_path, content, claude_xml, markdown, line_numbers, is_last_section=(file_path == global_last_file))
-                except UnicodeDecodeError:
-                    rel_path = os.path.relpath(file_path)
-                    warning_message = f"Warning: Skipping file {rel_path} due to UnicodeDecodeError"
-                    click.echo(click.style(warning_message, fg="red"), err=True)
 
 
 def read_paths_from_stdin(use_null_separator):
@@ -286,7 +300,7 @@ def format_tree_prefix(levels: list[bool]) -> str:
     return "".join(result)
 
 
-def should_ignore_relpath(path: str, base: str, gitignore_rules: list[str]) -> bool:
+def should_ignore_relpath(path: str, base: str, gitignore_rules: list[tuple[str, str]]) -> bool:
     """
     Check if a path (relative to base) should be ignored using gitignore rules.
 
@@ -296,8 +310,8 @@ def should_ignore_relpath(path: str, base: str, gitignore_rules: list[str]) -> b
         Path relative to base
     base : str
         Base directory where .gitignore applies
-    gitignore_rules : list[str]
-        List of gitignore patterns
+    gitignore_rules : list[tuple[str, str]]
+        List of ``(base, pattern)`` gitignore rules
 
     Returns
     -------
@@ -314,7 +328,7 @@ def generate_directory_structure(
     include_hidden: bool,
     ignore_files_only: bool,
     ignore_gitignore: bool,
-    gitignore_rules: list[str],
+    gitignore_rules: list[tuple[str, str]],
     ignore_patterns: tuple[str, ...],
     levels: list[bool] = None,
     parent_ignored: bool = False,
@@ -326,7 +340,7 @@ def generate_directory_structure(
     name = os.path.basename(path)
 
     # Check if this path should be ignored
-    is_dir_ignored = ignore_patterns and should_ignore(path, list(ignore_patterns))
+    is_dir_ignored = ignore_patterns and should_ignore(path, [(os.sep, p) for p in ignore_patterns])
     if is_dir_ignored and not ignore_files_only:
         return ""
     
@@ -367,11 +381,11 @@ def generate_directory_structure(
         if os.path.isdir(item_path):
             # Check if directory should be ignored (only if not ignore_files_only)
             if ignore_patterns and not ignore_files_only:
-                if should_ignore(item_path, list(ignore_patterns)):
+                if should_ignore(item_path, [(os.sep, p) for p in ignore_patterns]):
                     continue
             
             # Always include directories in filtered_items when using ignore_files_only
-            filtered_items.append((item, ignore_patterns and should_ignore(item_path, list(ignore_patterns))))
+            filtered_items.append((item, ignore_patterns and should_ignore(item_path, [(os.sep, p) for p in ignore_patterns])))
             
         # Handle files
         elif os.path.isfile(item_path):
@@ -380,7 +394,7 @@ def generate_directory_structure(
                 continue
             
             # Skip files matching ignore patterns
-            if ignore_patterns and should_ignore(item_path, list(ignore_patterns)):
+            if ignore_patterns and should_ignore(item_path, [(os.sep, p) for p in ignore_patterns]):
                 continue
                 
             # In ignore-files-only mode, also skip files in ignored parent directories
@@ -674,34 +688,23 @@ def cli(
                     )
         else:
             # Determine all files to process for correct blank line logic
-            all_files = []
+            all_files: list[str] = []
             for path in paths:
                 abs_path = os.path.abspath(path)
-                if os.path.isfile(abs_path):
-                    all_files.append(abs_path)
-                elif os.path.isdir(abs_path):
-                    for root, dirs, files in os.walk(abs_path):
-                        if output_file and os.path.dirname(output_file) == root:
-                            if os.path.basename(output_file) in files:
-                                files.remove(os.path.basename(output_file))
-                        if not include_hidden:
-                            dirs[:] = [d for d in dirs if not d.startswith('.')]
-                            files = [f for f in files if not f.startswith('.')]
-                        if not ignore_gitignore:
-                            gitignore_rules.extend(read_gitignore(root))
-                            dirs[:] = [d for d in dirs if not should_ignore_relpath(os.path.join(root, d), root, gitignore_rules)]
-                            files = [f for f in files if not should_ignore_relpath(os.path.join(root, f), root, gitignore_rules)]
-                        if ignore_patterns:
-                            if not ignore_files_only:
-                                dirs[:] = [d for d in dirs if not should_ignore(os.path.join(root, d), list(ignore_patterns))]
-                            files = [f for f in files if not should_ignore(os.path.join(root, f), list(ignore_patterns))]
+                if os.path.exists(abs_path):
+                    all_files.extend(
+                        collect_files(
+                            abs_path,
+                            extensions,
+                            include_hidden,
+                            ignore_files_only,
+                            ignore_gitignore,
+                            gitignore_rules,
+                            ignore_patterns,
+                            output_file,
+                        )
+                    )
 
-                        if extensions:
-                            files = [f for f in files if f.endswith(extensions)]
-                        for file in sorted(files):
-                            file_path = os.path.join(root, file)
-                            all_files.append(file_path)
-            
             last_file = all_files[-1] if all_files else None
             for path in paths:
                 abs_path = os.path.abspath(path)
